@@ -21,14 +21,12 @@ using namespace emscripten;
 extern IGraphics* gGraphics;
 
 // Font
-
 IFontDataPtr IGraphicsWeb::WebFileFont::GetFontData()
 {
   IFontDataPtr fontData(new IFontData());
   FILE* fp = fopen(mPath.Get(), "rb");
   
   // Read in the font data.
-  
   if (!fp)
     return fontData;
   
@@ -240,15 +238,22 @@ EM_BOOL key_callback(int eventType, const EmscriptenKeyboardEvent* pEvent, void*
 {
   IGraphicsWeb* pGraphicsWeb = (IGraphicsWeb*) pUserData;
   
+  IKeyPress keyPress {pEvent->key,
+                      domVKToWinVK(pEvent->keyCode),
+                      static_cast<bool>(pEvent->shiftKey),
+                      static_cast<bool>(pEvent->ctrlKey),
+                      static_cast<bool>(pEvent->altKey)};
+  
   switch (eventType)
   {
     case EMSCRIPTEN_EVENT_KEYDOWN:
     {
-      IKeyPress keyPress {*pEvent->key, domVKToWinVK(pEvent->keyCode), static_cast<bool>(pEvent->shiftKey),
-                                                                       static_cast<bool>(pEvent->ctrlKey),
-                                                                       static_cast<bool>(pEvent->altKey)};
-      
       pGraphicsWeb->OnKeyDown(pGraphicsWeb->mPrevX, pGraphicsWeb->mPrevY, keyPress);
+      break;
+    }
+    case EMSCRIPTEN_EVENT_KEYUP:
+    {
+      pGraphicsWeb->OnKeyUp(pGraphicsWeb->mPrevX, pGraphicsWeb->mPrevY, keyPress);
       break;
     }
     default:
@@ -380,6 +385,7 @@ IGraphicsWeb::IGraphicsWeb(IGEditorDelegate& dlg, int w, int h, int fps, float s
   emscripten_set_mouseleave_callback("canvas", this, 1, mouse_callback);
   emscripten_set_wheel_callback("canvas", this, 1, wheel_callback);
   emscripten_set_keydown_callback("#window", this, 1, key_callback);
+  emscripten_set_keyup_callback("#window", this, 1, key_callback);
 }
 
 IGraphicsWeb::~IGraphicsWeb()
@@ -401,7 +407,7 @@ void* IGraphicsWeb::OpenWindow(void* pHandle)
   
   OnViewInitialized(nullptr /* not used */);
 
-  SetScreenScale(std::max(emscripten_get_device_pixel_ratio(), 1.));
+  SetScreenScale(std::ceil(std::max(emscripten_get_device_pixel_ratio(), 1.)));
 
   GetDelegate()->LayoutUI(this);
   
@@ -460,6 +466,15 @@ ECursor IGraphicsWeb::SetMouseCursor(ECursor cursorType)
 void IGraphicsWeb::OnMainLoopTimer()
 {
   IRECTList rects;
+  int screenScale = (int) std::ceil(std::max(emscripten_get_device_pixel_ratio(), 1.));
+
+  if (!gGraphics)
+    return;
+  
+  if (screenScale != gGraphics->GetScreenScale())
+  {
+    gGraphics->SetScreenScale(screenScale);
+  }
 
   if (gGraphics->IsDirty(rects))
   {
